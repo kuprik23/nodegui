@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Interactive Mind Map</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+        .node circle {
+            fill: #fff;
+            stroke: #00ffff;
+            stroke-width: 3px;
+            cursor: pointer;
+        }
+        .node text {
+            font: 12px sans-serif;
+            fill: #00ffff;
+        }
+        .link {
+            fill: none;
+            stroke: #00ffff;
+            stroke-width: 2px;
+            opacity: 0.5;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #00ffff;
+        }
+        button {
+            background: #00ffff;
+            color: #000;
+            border: none;
+            padding: 5px 10px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <svg id="mindMap"></svg>
+    <div id="controls">
+        <button id="addNode">Add Node</button>
+        <button id="resetView">Reset View</button>
+    </div>
+    <script>
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const svg = d3.select("#mindMap")
+            .attr("width", width)
+            .attr("height", height);
+
+        const g = svg.append("g");
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on("zoom", (event) => g.attr("transform", event.transform));
+
+        svg.call(zoom);
+
+        const data = {
+            name: "Universe",
+            children: [
+                {
+                    name: "Galaxies",
+                    children: [
+                        { name: "Milky Way" },
+                        { name: "Andromeda" },
+                        { name: "Triangulum" }
+                    ]
+                },
+                {
+                    name: "Dimensions",
+                    children: [
+                        { name: "Space" },
+                        { name: "Time" }
+                    ]
+                },
+                { name: "Dark Matter" }
+            ]
+        };
+
+        const root = d3.hierarchy(data);
+
+        const tree = d3.tree()
+            .size([2 * Math.PI, Math.min(width, height) / 2 - 100])
+            .separation((a, b) => (a.parent == b.parent ? 1 : 2) / a.depth);
+
+        function update(source) {
+            const duration = 750;
+
+            const treeData = tree(root);
+            const nodes = treeData.descendants();
+            const links = treeData.links();
+
+            // Normalize for fixed-depth
+            nodes.forEach(d => {
+                d.y = d.depth * 100;
+            });
+
+            // Update the nodes
+            const node = g.selectAll(".node")
+                .data(nodes, d => d.id || (d.id = ++i));
+
+            const nodeEnter = node.enter().append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${radialPoint(source.x0, source.y0)})`)
+                .on("click", clicked);
+
+            nodeEnter.append("circle")
+                .attr("r", 1e-6)
+                .style("fill", d => d._children ? "#00ffff" : "#fff");
+
+            nodeEnter.append("text")
+                .attr("dy", "0.31em")
+                .attr("x", d => d.x < Math.PI === !d.children ? 6 : -6)
+                .attr("text-anchor", d => d.x < Math.PI === !d.children ? "start" : "end")
+                .attr("transform", d => `rotate(${(d.x < Math.PI ? d.x - Math.PI / 2 : d.x + Math.PI / 2) * 180 / Math.PI})`)
+                .text(d => d.data.name)
+                .style("fill-opacity", 0);
+
+            // Update
+            const nodeUpdate = nodeEnter.merge(node);
+
+            nodeUpdate.transition().duration(duration)
+                .attr("transform", d => `translate(${radialPoint(d.x, d.y)})`);
+
+            nodeUpdate.select("circle")
+                .attr("r", 5)
+                .style("fill", d => d._children ? "#00ffff" : "#fff");
+
+            nodeUpdate.select("text")
+                .style("fill-opacity", 1)
+                .attr("transform", d => `rotate(${(d.x < Math.PI ? d.x - Math.PI / 2 : d.x + Math.PI / 2) * 180 / Math.PI})`);
+
+            // Remove any exiting nodes
+            const nodeExit = node.exit().transition().duration(duration)
+                .attr("transform", d => `translate(${radialPoint(source.x, source.y)})`)
+                .remove();
+
+            nodeExit.select("circle").attr("r", 1e-6);
+            nodeExit.select("text").style("fill-opacity", 0);
+
+            // Update the links
+            const link = g.selectAll(".link")
+                .data(links, d => d.target.id);
+
+            const linkEnter = link.enter().insert("path", "g")
+                .attr("class", "link")
+                .attr("d", d3.linkRadial()
+                    .angle(d => source.x0)
+                    .radius(d => source.y0));
+
+            link.merge(linkEnter).transition().duration(duration)
+                .attr("d", d3.linkRadial()
+                    .angle(d => d.x)
+                    .radius(d => d.y));
+
+            link.exit().transition().duration(duration)
+                .attr("d", d3.linkRadial()
+                    .angle(d => source.x)
+                    .radius(d => source.y))
+                .remove();
+
+            nodes.forEach(d => {
+                d.x0 = d.x;
+                d.y0 = d.y;
+            });
+        }
+
+        function clicked(event, d) {
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            update(d);
+        }
+
+        function radialPoint(x, y) {
+            return [(y = +y) * Math.cos(x -= Math.PI / 2), y * Math.sin(x)];
+        }
+
+        let i = 0;
+        root.x0 = 0;
+        root.y0 = 0;
+        update(root);
+
+        d3.select("#addNode").on("click", () => {
+            const newNodeName = prompt("Enter new node name:");
+            if (newNodeName) {
+                const randomNode = root.descendants()[Math.floor(Math.random() * root.descendants().length)];
+                if (!randomNode.children) randomNode.children = [];
+                else if (!randomNode._children) randomNode._children = [];
+                const target = randomNode.children || randomNode._children;
+                target.push({name: newNodeName});
+                update(randomNode);
+            }
+        });
+
+        d3.select("#resetView").on("click", () => {
+            svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+        });
+    </script>
+</body>
+</html>```
